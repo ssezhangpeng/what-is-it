@@ -33,7 +33,8 @@
 如果换做是多个进程，需要同时操作一个共享资源，如何互斥呢？
 
 例如，现在的业务应用通常都是微服务架构，这也意味着一个应用会部署多个进程(见下图1所示)，那这多个进程如果需要修改MySQL中的同一行记录时，为了避免操作乱序导致数据错误，此时，我们就需要引入**分布式锁🔒**来解决这个问题了。
-![微服务架构示例](./picture/what-is-it-001-001.svg)
+
+<div align="center"><img src=./picture/what-is-it-001-001.svg /></div>
 
 要想实现分布式锁，必须借助一个外部系统，所有进程都去这个系统上去**申请加锁🔒**。
 
@@ -71,7 +72,8 @@
 (integer) 1
 ```
 这个逻辑非常简单，整体流程就是这样:
-![流程图](./picture/what-is-it-001-002.svg)
+
+<div align="center"><img src=./picture/what-is-it-001-002.svg /></div>
 
 但是，这种方式存在一个很大的问题，当客户端1拿到锁后，如果发生下面的场景，就会造成**死锁**:
 1. 程序处理业务逻辑异常，没及时释放锁
@@ -192,7 +194,8 @@ end
 1. 加锁：`SET $lock_key $unique_id EX $expire_time NX`
 2. 操作共享资源
 3. Lua脚本，先 `GET` 判断锁🔒是否归属自己，然后再 `DEL` 释放锁🔒
-![流程优化图](./picture/what-is-it-001-003.svg)
+
+<div align="center"><img src=./picture/what-is-it-001-003.svg /></div>
 
 好了，有了这个完整的锁🔒模型，让我们回到前面提到的第一个问题。
 
@@ -211,7 +214,7 @@ end
 
 Redisson 是一个 Java 语言实现的 Redis SDK 客户端，在使用分布式锁🔒时，它就采用了**自动续期**的方案来避免锁过期，这个守护线程我们一般也把它叫做**看门狗🐶**线程。
 
-![Redsson图](./picture/what-is-it-001-004.svg)
+<div align="center"><img src=./picture/what-is-it-001-004.svg /></div>
 
 除此之外，这个 SDK 还封装了很多易用的功能：
 - 可重入锁
@@ -241,7 +244,7 @@ Redisson 是一个 Java 语言实现的 Redis SDK 客户端，在使用分布式
 2. 此时，主库异常宕机，`SET` 命令还未同步到从库上(主从复制是异步的)
 3. 从库被哨兵提升为新的主库，这个锁🔒在新的主库上，丢失了！！
 
-![锁丢失示意图](./picture/what-is-it-001-005.svg)
+<div align="center"><img src=./picture/what-is-it-001-005.svg /></div>
 
 可见，当引入 Redis 多副本后，分布式锁🔒还是可能会收到影响。
 
@@ -262,7 +265,7 @@ Redlock 的方案基于两个前提：‘
 
 也就是说，想使用 Redlock， 你至少要部署 5 个 Redis 实例，而且它们都是从库，它们之间没有任何关系，都是一个个孤立的实例。**不是部署 Redis Cluster，就是部署 5 个简单的 Redis 实例**。
 
-![锁丢失示意图](./picture/what-is-it-001-006.svg)
+<div align="center"><img src=./picture/what-is-it-001-006.svg /></div>
 
 Redlock 的流程是这样的，一共分为 5 步：
 1. 客户端先获取**当前时间戳T1**
@@ -309,7 +312,7 @@ Redlock 的流程是这样的，一共分为 5 步：
 
 Redis 作者把这个方案一经提出，就马上收到业界瞩目的分布式专家的**质疑**！
 
-这个人就是 Martin，是的，他就是著名分布式书籍[数据密集型应用系统设计(DDIA)](http:www.baidu.com)的作者，他经常在大会做演讲，写博客，写书，也是开源贡献者。
+这个人就是 Martin，是的，他就是著名分布式书籍[数据密集型应用系统设计(DDIA)](https://martin.kleppmann.com/)的作者，他经常在大会做演讲，写博客，写书，也是开源贡献者。
 
 
 Martin 马上写了篇文章，质疑这个 Redlock 的算法模型是有问题的，并对分布式锁的设计，提出了自己的看法。
@@ -337,7 +340,7 @@ Martin 马上写了篇文章，质疑这个 Redlock 的算法模型是有问题�
 
 
 ###### 锁在分布式系统中会遇到的问题
-Martin 表示，一个分布式系统，更像一个复杂的**野兽**(), 存在着你想不到的各种异常情况。
+Martin 表示，一个分布式系统，更像一个复杂的**野兽**(莫非这就是DDIA封面的灵感来源😄), 存在着你想不到的各种异常情况。
 
 这些异常场景主要包括三大块。这也是分布式系统会遇到的三座大山：**NPC**
 - N: Network Delay(网络延迟)
@@ -352,7 +355,7 @@ Martin 用一个进程暂停(GC)的例子, 指出了 redlock 的安全性问题�
 5. 客户端1 GC 结束，任务成功获取到锁🔒
 6. 客户端2也认为获取到了锁🔒，发生锁**冲突**
 
-![GC导致锁冲突示意图](./picture/what-is-it-001-007.svg)
+<div align="center"><img src=./picture/what-is-it-001-007.svg /></div>
 
 Martin 认为，GC 可能发生在程序的任意时刻，而且执行实现是不可控的。
 > 当然，即使是没有使用 GC 的编程语言，在发生网络延迟、时钟漂移的时候，也都有可能导致 redlock 出现问题，这里 Martin 只是拿 GC 举例。
@@ -383,7 +386,7 @@ Martin 继续阐述，机器的时钟发生错误，是很有可能发生的：
 2. 客户端拿着这个token去操作共享资源
 3. 共享资源可以根据 token 去拒绝**后来者**的请求
 
-![fecing token 示意图](./picture/what-is-it-001-008.svg)
+<div align="center"><img src=./picture/what-is-it-001-008.svg /></div>
 
 这样以来，无论 NPC 那种情况发生，都可以保证分布式锁的安全性，因为它是建立在**异步模型**的基础上的。
 
