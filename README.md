@@ -4,4 +4,4 @@
 
 001. [分布式锁🔒](001-分布式锁/distributed_lock.md)
 002. [缓存一致性](002-缓存一致性/cache_consistance.md)
-3.   [Redis大Key与热Key](003-Redis/big_hot_key.md)
+3.   [大Key与热Key](003-Redis/big_hot_key.md)
