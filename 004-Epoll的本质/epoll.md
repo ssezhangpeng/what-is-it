@@ -171,13 +171,108 @@ select的实现思路很直接。假如程序同时监视如下图的sock1、soc
 
 ### epoll 的设计思路
 
+epoll 是在 select 出现 N 年之后才被发明的，是 select 和 poll 的增强版本。epoll 通过以下一些措施来改进效率。
 
+**1. 功能分离**
+
+select 低效的原因之一是将 **维护等待队列** 和 **阻塞进程**两个步骤合二为一。如下图 10 所示，每次调用 delect 都需要这两个步骤，然而大多数应用场景中，需要监视的 socket 相对固定，并不需要每次都修改。epoll 将这两个操作分开，先用 epoll_ctl 维护等待队列，再调用 epoll_wait 阻塞进程。显而易见的，效率就能得到提升。
+
+<div align="center"><img src=./picture/what-is-it-004-010.svg /></div>
+
+为了方便理解后续的内容，我们先复习下 epoll 的用法。如下的代码中，先用 epoll_create 创建一个 epoll 对象 epfd，再通过 epoll_ctl 将需要监视的 socket 添加到 epfd 中，最后调用 epoll_wait 等待数据。
+
+```c++
+int s = socket(AF_INET, SOCK_STREAM, 0);   
+bind(s, ...)
+listen(s, ...)
+
+int epfd = epoll_create(...);
+epoll_ctl(epfd, ...); //将所有需要监听的socket添加到epfd中
+
+while(1){
+    int n = epoll_wait(...)
+    for(接收到数据的socket){
+        //处理
+    }
+}
+```
+
+由于功能分离，使得 epoll 有了优化的可能。
+
+**2. 就绪列表**
+
+select 抵消了的另外一个原因在于程序不知道哪些 socket 收到数据，只能一个个遍历。如果内核维护一个 **就绪列表**，引用收到数据的 socket，就能避免遍历。如下图11所示，计算机共有三个 socket，收到数据的 socket2 和 socket3 被 **rdlist(就绪列表)** 所引用。当进程被唤醒后，只要获取 rdlist 的内容，就能够知道哪些 socket 收到数据。
+
+<div align="center"><img src=./picture/what-is-it-004-011.svg /></div>
 
 ### epoll 的原理和流程
 
+本节会以示例和图表来介绍 epoll 的原理和流程。
+
+**1. 创建 epoll 对象**
+
+如下图 12 所示，当某个进程调用 epoll_create 方法时，内核会创建一个 eventpoll 对象(也就是程序中的 epfd 对象)。eventpoll 对象也是文件系统中的一员，和 socket 一员，它也会有等待队列。
+
+<div align="center"><img src=./picture/what-is-it-004-012.svg /></div>
+
+创建一个代表该 epoll 的 eventpoll 对象是必须的，因为内核要维护就绪列表数据，**就绪列表可以作为 eventpoll 的成员**。
+
+**2. 维护监视列表**
+
+创建 epoll 对象后，可以用 epoll_ctl 添加或删除所要监听的 socket。下面以添加 socket 为例，如下图 13 所示，如果通过 epoll_ctl 添加 socket1， socket2， socket3 的监视，内核会将 eventpoll 添加到这三个 socket 的等待队列中。
+
+<div align="center"><img src=./picture/what-is-it-004-013.svg /></div>
+
+当 socket 收到数据后，中断程序会操作 eventpoll 对象，而不是直接操作进程。
+
+**3. 接收数据**
+
+当 socket 接收到数据后，中断程序会给 eventpoll 的就绪列表添加 socket 引用。如下图 14 所示，socket2 和 socket3 接收到数据后，中断程序让 rdlist 引用这两个 socket。
+
+<div align="center"><img src=./picture/what-is-it-004-014.svg /></div>
+
+eventpoll 对象相当于是 socket 和进程之间的中介，socket 的数据接收并不直接影响进程。而是通过改变 eventpoll 的就绪列表来改变进程状态。
+
+当程序执行到 epoll_wait 时，如果 rdlist 已经引用了 socket，那么 epoll_wait 直接返回，如果 rdlist 为空，阻塞进程。
+
+**4. 阻塞和唤醒进程**
+
+假设计算机正在运行 进程 A 和进程 B，在某时刻进程 A运行到了 epoll_wait 语句。如下图 15 所示，内核将会将进程 A 放入 eventpoll 的等待队列中，阻塞进程。
+
+<div align="center"><img src=./picture/what-is-it-004-015.svg /></div>
+
+当 socket 接收到数据，中断程序一方面修改 rdlist，另一方面唤醒 eventpoll 等待队列中的进程，进程 A 再次进入运行状态。也因为有 rdlist 的存在，进程 A 可以知道哪些 socket 发生了变化。
+
+<div align="center"><img src=./picture/what-is-it-004-016.svg /></div>
+
 ### epoll 的实现细节
+
+至此，我们对 epoll 的本质已经有了一定的了解。但我们还有一个问题，**eventpoll 的数据结构是怎样的？**
+
+我们可以先思考两个问题：
+- **就绪队列** 应该用什么数据结构？
+- **eventpoll** 应该用什么数据结构？
+
+<div align="center"><img src=./picture/what-is-it-004-017.svg /></div>
+
+**1. 就绪列表的数据结构**
+
+就绪列表引用着就绪的socket，所以它应能够快速的插入数据。
+
+程序可能随时调用epoll_ctl添加监视socket，也可能随时删除。当删除时，若该socket已经存放在就绪列表中，它也应该被移除。
+
+所以就绪列表应是一种能够快速插入和删除的数据结构。双向链表就是这样一种数据结构，epoll使用**双向链表**来实现就绪队列(对应上图的rdllist, *这里我觉得单链表也可以*)。
+
+**2. 索引结构**
+
+既然epoll将维护监视队列和进程阻塞分离，也意味着需要有个数据结构来保存所有监视的socket。至少要方便的添加和移除，还要便于搜索，以避免重复添加。红黑树是一种自平衡二叉查找树，搜索、插入和删除时间复杂度都是O(log(N))，效率较好。epoll使用了**红黑树**作为索引结构（对应上图的rbr）
+
+> ps：因为操作系统要兼顾多种功能，以及由更多需要保存的数据，rdlist并非直接引用socket，而是通过epitem间接引用，红黑树的节点也是epitem对象。同样，文件系统也并非直接引用着socket。为方便理解，本文中省略了一些间接结构。
 
 ### 结论
 
+epoll 在 select 和 poll（poll 和 select 基本一样，有少量改进）的基础**引入了eventpoll 作为中间层，使用了先进的数据结构**，是一种高效的多路复用技术。
+
 ### 参考资料
 1. [罗培羽知乎专栏](https://zhuanlan.zhihu.com/p/63179839)
+2. 《Linux高性能服务器编程》
