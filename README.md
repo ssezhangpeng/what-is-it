@@ -6,3 +6,4 @@
 002. [缓存一致性](002-缓存一致性/cache_consistance.md)
 003. [大Key与热Key](003-Redis/big_hot_key.md)
 004. [Epoll的本质](004-Epoll的本质/epoll.md)
+005. [MySQL性能优化](005-MySQL性能优化/mysql_optimize.md)
