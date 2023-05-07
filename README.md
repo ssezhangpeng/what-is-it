@@ -7,3 +7,4 @@
 003. [大Key与热Key](003-Redis/big_hot_key.md)
 004. [Epoll的本质](004-Epoll的本质/epoll.md)
 005. [MySQL性能优化](005-MySQL性能优化/mysql_optimize.md)
+006. [MySQL闪回工具](006-MySQL闪回工具/mysql_flashback.md)
